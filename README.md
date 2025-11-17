@@ -857,7 +857,3 @@ Urban-Jarvis/
 Este projeto é desenvolvido para fins acadêmicos no Centro Universitário UniBrasil.
 
 MIT License - Copyright (c) 2025 Urban Jarvis Team
-
----
-
-**Nota Final:** Este documento foi elaborado como base para futura formatação em padrão ABNT (Associação Brasileira de Normas Técnicas) para submissão acadêmica. Inclui fundamentação teórica, justificativas, metodologia, e explicações detalhadas de implementação técnica, atendendo aos requisitos de um trabalho de pesquisa em Estrutura de Dados.
