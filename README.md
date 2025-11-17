@@ -5,7 +5,7 @@
 **Instituição:** Centro Universitário UniBrasil  
 **Curso:** Análise e Desenvolvimento de Sistemas / Ciência da Computação  
 **Disciplina:** Estrutura de Dados  
-**Ano:** 2024  
+**Ano:** 2025  
 
 **Equipe:**
 - João Vitor Soares da Silva
@@ -856,7 +856,7 @@ Urban-Jarvis/
 
 Este projeto é desenvolvido para fins acadêmicos no Centro Universitário UniBrasil.
 
-MIT License - Copyright (c) 2024 Urban Jarvis Team
+MIT License - Copyright (c) 2025 Urban Jarvis Team
 
 ---
 
