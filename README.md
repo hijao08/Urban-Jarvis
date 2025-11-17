@@ -1,132 +1,139 @@
-# URBS API (Node.js + Express + MVC)
+# Urban Jarvis API (Node.js + Express + MVC)
 
-API em Node.js (Express) organizada em MVC para consumir uma API externa e persistir dados em Postgres. Inclui configuração com Docker Compose para o banco e uso de Sequelize como ORM.
+API construída em Node.js para servir como “cérebro” do projeto Urban Jarvis — um totem baseado em ESP32 S3 que exibe, em tempo real, os horários de ônibus da URBS em estações como o Terminal do Centenário, em Curitiba. O backend filtra, organiza e armazena os dados volumosos da URBS antes de enviá-los ao microcontrolador, evitando estourar a memória do dispositivo embarcado.
 
-## Sumário
+## Visão Geral do Projeto
 
-- Arquitetura
-- Requisitos
-- Configuração
-- Executando
-- Endpoints
-- Banco de dados
-- Scripts NPM
-- Estrutura de pastas
+- **Urban Jarvis (ESP32 S3 + TFT Touch + LED RGB)**  
+  Dispositivo de campo que se conecta ao Wi-Fi, consulta este backend e mostra o próximo ônibus de forma acessível, com botões touch, feedback luminoso e atualização automática de horário. Em caso de falta de internet, trabalha com dados cacheados.
 
-## Arquitetura
+- **Backend Node.js (este repositório)**  
+  Serviço web que conversa com a API oficial da URBS, persiste os dados em Postgres e expõe endpoints enxutos para o ESP32. A lógica em Node também ordena e filtra os horários (ex.: ignora horários já passados, prioriza intervalos úteis) para que o microcontrolador receba apenas o necessário.
 
-- Framework: Express
-- Padrão: MVC (Models, Controllers, Routes, Services)
-- ORM: Sequelize (dialeto Postgres)
-- Banco: Postgres em contêiner Docker
-- HTTP Client: Axios para consumir API externa
+- **Desafio de Estrutura de Dados**  
+  No firmware, os horários são armazenados em árvores binárias de busca (BST) para garantir consultas rápidas ao “próximo ônibus”. Esta API entrega os dados já prontos para alimentar essa estrutura sem sobrecarregar memória ou rede.
+
+## Motivação
+
+1. **Limitações do ESP32 S3**: a URBS devolve listas grandes de horários e metadados. Processar tudo diretamente no microcontrolador poderia consumir muita RAM, tempo de CPU e banda.
+2. **Filtro inteligente**: centralizamos o tratamento em Node, que pode rodar em infraestrutura mais robusta (local ou cloud), aplicar regras de negócios e servir apenas o essencial.
+3. **Experiência urbana**: disponibilizar informações de transporte público em pontos físicos aumenta acessibilidade, especialmente para quem não tem aplicativos no celular.
+
+## Como o fluxo funciona
+
+1. O backend chama a URBS e normaliza os dados (dia, ponto, código da linha).
+2. Os registros são persistidos em Postgres via Sequelize, permitindo histórico e cache.
+3. Endpoints específicos entregam recortes enxutos: por linha, por dia, por ponto.
+4. O ESP32 acessa o endpoint adequado (`/api/urbs/horarios-linha/db/dia-ponto`) e monta/atualiza a BST local.
+5. A tela TFT mostra o horário atual, o próximo ônibus e um carrossel com os demais horários.
+6. A lógica embarcada também disponibiliza um web server local para debug/monitoramento.
+
+## Arquitetura do Backend
+
+- **Framework**: Express, seguindo padrão MVC (controllers, services, routes).
+- **ORM**: Sequelize (dialeto Postgres).
+- **Banco**: Postgres em contêiner Docker (via `docker compose`).
+- **HTTP Client**: Axios para interagir com a API URBS.
+- **Estrutura**: `src/` com `app.js`, `server.js`, `config/`, `controllers/`, `models/`, `routes/` e `services/`.
 
 ## Requisitos
 
-- Node.js 18+ (recomendado 20+)
-- Docker e Docker Compose (ou plugin `docker compose`)
+- Node.js 18+ (recomendado 20+).
+- Docker e Docker Compose.
+- Acesso à internet para consumir a API URBS.
 
 ## Configuração
 
-1. Instale dependências:
+1. **Instale dependências**
    ```bash
    npm install
    ```
-2. Variáveis de ambiente:
-   - Copie `.env.example` para `.env` e ajuste conforme necessário.
-   - Se `.env.example` não existir, crie `.env` com:
-     ```bash
-     PORT=3000
-     CORS_ORIGIN=*
-     POSTGRES_DB=urbs
-     POSTGRES_USER=urbs
-     POSTGRES_PASSWORD=urbs
-     POSTGRES_PORT=5432
-     DATABASE_URL=postgres://urbs:urbs@localhost:5432/urbs
-     EXTERNAL_API_BASE=https://jsonplaceholder.typicode.com
-     ```
-
-3. Suba o Postgres com Docker:
-
+2. **Crie o arquivo `.env`**
+   ```bash
+   PORT=3000
+   CORS_ORIGIN=*
+   POSTGRES_DB=urbs
+   POSTGRES_USER=urbs
+   POSTGRES_PASSWORD=urbs
+   POSTGRES_PORT=5432
+   DATABASE_URL=postgres://urbs:urbs@localhost:5432/urbs
+   EXTERNAL_API_BASE=https://jsonplaceholder.typicode.com
+   ```
+3. **Suba o Postgres**
    ```bash
    docker compose up -d
    ```
-
-4. Teste saúde do banco (após app subir): `GET /api/db/health`.
+4. **Teste saúde do banco**  
+   Depois que o app estiver rodando: `GET /api/db/health`.
 
 ## Executando
 
-- Desenvolvimento (com reload via nodemon):
+- **Desenvolvimento (hot reload com nodemon)**
   ```bash
   npm run dev
   ```
-- Produção (simples):
+- **Produção simples**
   ```bash
   npm start
   ```
-  O app inicia em `http://localhost:3000` (ou porta definida em `PORT`).
+  O servidor fica disponível em `http://localhost:3000` (ou na porta definida em `PORT`).
 
-## Endpoints
+## Endpoints principais
 
-- Saúde do app:
-  - `GET /health` → `{ status: "ok" }`
-- Saúde do banco:
-  - `GET /api/db/health` → `{ status: "ok" }` se conexão estiver ok
-- API externa (exemplo JSONPlaceholder):
-  - `GET /api/external/posts` → retorna lista de posts
-- API URBS:
-  - Proxy direto da URBS (retorna da API externa):
-    - `GET /api/urbs/horarios-linha?linha=303&c=858ce`
-  - Sincronização e consultas no banco (ordenadas a partir de 04:00):
-    - `POST /api/urbs/horarios-linha/sync?linha=303&c=858ce` → busca na URBS e salva no Postgres
-    - `GET /api/urbs/horarios-linha/db?cod=303&limit=700` → lista geral do banco, filtro opcional por `cod`
-    - `GET /api/urbs/horarios-linha/db/dia?dia=1&cod=303&limit=700` → lista apenas do dia informado
-    - `GET /api/urbs/horarios-linha/db/dia-ponto?dia=1&ponto=TERMINAL%20CENTENARIO&cod=303&limit=700` → lista por dia e ponto
-- CRUD de Items (exemplo de modelo):
+- **Saúde**
+  - `GET /health`
+  - `GET /api/db/health`
+- **URBS**
+  - `GET /api/urbs/horarios-linha?linha=303&c=858ce` → Proxy direto.
+  - `POST /api/urbs/horarios-linha/sync?linha=303&c=858ce` → Sincroniza e grava no Postgres.
+  - `GET /api/urbs/horarios-linha/db?cod=303&limit=700` → Consulta geral.
+  - `GET /api/urbs/horarios-linha/db/dia?dia=1&cod=303&limit=700` → Filtra por dia.
+  - `GET /api/urbs/horarios-linha/db/dia-ponto?dia=1&ponto=TERMINAL%20CENTENARIO&cod=303&limit=700` → Filtra por dia e ponto (principal consumo do ESP32).
+- **CRUD de exemplo (Items)**
   - `GET /api/v1/items`
   - `GET /api/v1/items/:id`
-  - `POST /api/v1/items` `{ name, description? }`
-  - `PUT /api/v1/items/:id` `{ name?, description? }`
+  - `POST /api/v1/items`
+  - `PUT /api/v1/items/:id`
   - `DELETE /api/v1/items/:id`
 
-## Banco de dados
-
-- Conexão em `src/config/database.js`.
-- Modelos em `src/models/` (ex.: `Item`).
-- Na inicialização (`src/server.js`) o app autentica e sincroniza (`sequelize.sync()`) os modelos. Em produção, prefira migrações.
-
-## Scripts NPM
-
-- `npm run dev`: inicia em modo desenvolvimento com nodemon
-- `npm start`: inicia o servidor
-
-## Estrutura de pastas
+## Estrutura de pastas (resumo)
 
 ```
 src/
-  app.js                 # Bootstrap do Express e middlewares
-  server.js              # Ponto de entrada do app
+  app.js
+  server.js
   config/
-    database.js          # Configuração do Sequelize/Postgres
+    database.js
   controllers/
-    ItemController.js    # Controller CRUD de exemplo
+    ItemController.js
   models/
-    Item.js              # Modelo Sequelize
-    index.js             # Registro de modelos e export do sequelize
+    Item.js
+    index.js
   routes/
-    index.js             # Rotas base (/api)
-    v1.js                # Rotas versão 1 (items)
+    index.js
+    v1.js
   services/
-    ExternalApiService.js # Consumo da API externa com axios
+    ExternalApiService.js
 
 docker-compose.yml
 .env (local)
 ```
 
-## Notas
+## Hardware: ESP32 S3 + Estruturas de Dados
 
-- Se `docker compose up -d` acusar erro de flag, tente `docker-compose up -d`.
-- Ajuste `DATABASE_URL` se o Postgres estiver em outra porta/host.
+- Microcontrolador com Wi-Fi/Bluetooth integrado, ideal para IoT urbano.
+- Display TFT sensível ao toque e LED RGB facilitam interação e feedback.
+- Dados vindos desta API alimentam uma árvore binária (BST) que permite encontrar rapidamente o próximo horário igual ou posterior ao atual.
+- Caso falte internet, o firmware trabalha com o payload mais recente armazenado localmente.
+
+## Equipe
+
+Projeto acadêmico do Centro Universitário UniBrasil, desenvolvido por:
+
+- João Vitor Soares da Silva
+- Matheus Bilro Pereira Leite
+- Leonardo Bora da Costa
+- Luan Constancio
 
 ## Licença
 
